@@ -1,6 +1,6 @@
 {
   "name": "nodejs-ffmpeg",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A full-featured, cross-platform FFmpeg wrapper for Node.js with TypeScript support",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
