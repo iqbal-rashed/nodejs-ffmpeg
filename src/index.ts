@@ -34,6 +34,7 @@ export {
   getBinaryPaths,
   areBinariesDownloaded,
   getDefaultBinaryDir,
+  hasFFmpegBinaries,
 } from "./binary/paths";
 export {
   getPlatform,

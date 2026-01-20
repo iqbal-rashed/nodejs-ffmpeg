@@ -133,3 +133,7 @@ export function areBinariesDownloaded(): boolean {
 
   return isBinaryExecutable(ffmpegPath) && isBinaryExecutable(ffprobePath);
 }
+
+export function hasFFmpegBinaries(): boolean {
+  return areBinariesDownloaded();
+}
