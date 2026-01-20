@@ -61,16 +61,16 @@
     "concat",
     "merge"
   ],
-  "author": "",
+  "author": "Rashed Iqbal",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "git+https://github.com/iqbal-rashed/nodejs-ffmpeg.git"
   },
   "bugs": {
-    "url": ""
+    "url": "https://github.com/iqbal-rashed/nodejs-ffmpeg/issues"
   },
-  "homepage": "",
+  "homepage": "https://github.com/iqbal-rashed/nodejs-ffmpeg#readme",
   "engines": {
     "node": ">=18.0.0"
   },
