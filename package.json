@@ -1,14 +1,15 @@
 {
   "name": "nodejs-ffmpeg",
-  "version": "1.0.3",
+  "version": "1.1.1",
   "description": "A full-featured, cross-platform FFmpeg wrapper for Node.js with TypeScript support",
+  "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": {
-        "types": "./dist/index.d.mts",
+        "types": "./dist/index.d.ts",
         "default": "./dist/index.mjs"
       },
       "require": {
@@ -25,8 +26,8 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
     "typecheck": "tsc --noEmit",

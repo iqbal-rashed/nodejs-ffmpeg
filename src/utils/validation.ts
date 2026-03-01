@@ -23,14 +23,6 @@ export function validatePositiveNumber(value: number, name = "Value"): void {
   }
 }
 
-export function validateBitrate(bitrate: string): void {
-  if (!/^\d+[kKmM]?$/.test(bitrate)) {
-    throw new ValidationError(
-      `Invalid bitrate format: ${bitrate}. Expected format: "128k", "1M", or "1500"`
-    );
-  }
-}
-
 export function validateVideoSize(size: string): void {
   const predefinedSizes = [
     "sqcif",

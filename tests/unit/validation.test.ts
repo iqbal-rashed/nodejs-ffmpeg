@@ -6,12 +6,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   validatePath,
   validatePositiveNumber,
-  validateBitrate,
   validateVideoSize,
   isValidUrl,
   sanitizePath,
-} from "../../src/utils/validation.js";
-import { ValidationError } from "../../src/utils/errors.js";
+} from "../../src/utils/validation";
+import { validateBitrate } from "../../src/utils/validators";
+import { ValidationError } from "../../src/utils/errors";
 
 describe("validatePath", () => {
   it("should not throw for valid path", () => {

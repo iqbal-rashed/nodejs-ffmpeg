@@ -33,6 +33,6 @@ ffmpeg
 ffprobe
 outputs
 
-# Lock files (optional, uncomment if needed)
-# package-lock.json
-# pnpm-lock.yaml
+.claude
+# Test fixtures (auto-generated during tests)
+fixtures/output

@@ -71,3 +71,46 @@ export class ValidationError extends Error {
     Error.captureStackTrace(this, this.constructor);
   }
 }
+
+export class FFmpegAbortError extends FFmpegError {
+  constructor(command?: string) {
+    super("FFmpeg operation aborted", command);
+    this.name = "FFmpegAbortError";
+  }
+}
+
+export class InvalidInputError extends FFmpegError {
+  constructor(
+    public readonly path: string,
+    reason?: string
+  ) {
+    super(
+      reason
+        ? `Invalid input file "${path}": ${reason}`
+        : `Invalid input file: "${path}" does not exist or is not readable`
+    );
+    this.name = "InvalidInputError";
+  }
+}
+
+export class CodecNotFoundError extends FFmpegError {
+  constructor(
+    public readonly codec: string,
+    public readonly codecType: "video" | "audio" = "video"
+  ) {
+    super(
+      `${codecType === "video" ? "Video" : "Audio"} codec "${codec}" not found. ` +
+        `Run "ffmpeg -codecs" to see available codecs.`
+    );
+    this.name = "CodecNotFoundError";
+  }
+}
+
+export class FileExistsError extends FFmpegError {
+  constructor(public readonly path: string) {
+    super(
+      `Output file "${path}" already exists. Set overwrite: true to overwrite.`
+    );
+    this.name = "FileExistsError";
+  }
+}

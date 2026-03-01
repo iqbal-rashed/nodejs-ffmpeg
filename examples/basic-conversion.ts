@@ -23,9 +23,9 @@ async function main(): Promise<void> {
     console.log("\nDownload complete!\n");
   }
 
-  // Use samples/sample.webm as default, or take from command line
+  // Use fixtures/test-video.mp4 as default, or take from command line
   const inputFile =
-    process.argv[2] ?? path.join(__dirname, "..", "samples", "sample.webm");
+    process.argv[2] ?? path.join(__dirname, "..", "fixtures", "test-video.mp4");
 
   // Ensure outputs directory exists
   const outputsDir = path.join(__dirname, "..", "outputs");
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
       })
       .on("progress", (p) => {
         process.stdout.write(
-          `\rProgress: ${p.frames} frames, ${p.currentFps} fps, ${p.timemark}`
+          `\rProgress: ${p.frames} frames, ${p.currentFps} fps, ${p.timemark}, percent: ${p.percent}, ${p.targetSize}`
         );
       })
       .on("end", () => {

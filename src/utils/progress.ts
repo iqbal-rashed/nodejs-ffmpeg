@@ -68,3 +68,23 @@ export function formatTimemark(seconds: number): string {
 
   return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toFixed(2).padStart(5, "0")}`;
 }
+
+/**
+ * Parse duration from FFmpeg stderr output.
+ * FFmpeg outputs lines like: "Duration: 00:01:30.50, start: 0.000000, bitrate: 1234 kb/s"
+ * Returns duration in seconds, or null if not found.
+ */
+export function parseDuration(line: string): number | null {
+  const durationMatch = /Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/.exec(
+    line
+  );
+  if (!durationMatch) {
+    return null;
+  }
+
+  const hours = parseInt(durationMatch[1] ?? "0", 10);
+  const minutes = parseInt(durationMatch[2] ?? "0", 10);
+  const seconds = parseFloat(durationMatch[3] ?? "0");
+
+  return hours * 3600 + minutes * 60 + seconds;
+}

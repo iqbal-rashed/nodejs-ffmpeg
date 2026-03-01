@@ -26,7 +26,7 @@ async function main(): Promise<void> {
   }
 
   const inputFile =
-    process.argv[2] ?? path.join(__dirname, "..", "samples", "sample.webm");
+    process.argv[2] ?? path.join(__dirname, "..", "fixtures", "test-video.mp4");
 
   // Ensure outputs directory exists
   const outputsDir = path.join(__dirname, "..", "outputs");

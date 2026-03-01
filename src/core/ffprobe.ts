@@ -2,6 +2,7 @@ import { getFFprobePath } from "../binary/paths";
 import { spawnProcess } from "../utils/process";
 import { validateFileExists, isValidUrl } from "../utils/validation";
 import { FFmpegError, FFmpegExitError } from "../utils/errors";
+import { probeCache } from "../utils/cache";
 import type {
   FFprobeResult,
   FFprobeOptions,
@@ -19,8 +20,14 @@ export class FFprobe {
   }
 
   async getMetadata(filePath: string): Promise<FFprobeResult> {
+    // Check cache first for file paths (not URLs)
     if (!isValidUrl(filePath)) {
       validateFileExists(filePath, "Input file");
+
+      const cached = probeCache.get(filePath);
+      if (cached) {
+        return cached;
+      }
     }
 
     const args = [
@@ -52,7 +59,14 @@ export class FFprobe {
     }
 
     try {
-      return JSON.parse(result.stdout) as FFprobeResult;
+      const metadata = JSON.parse(result.stdout) as FFprobeResult;
+
+      // Cache the result for file paths
+      if (!isValidUrl(filePath)) {
+        probeCache.set(filePath, metadata);
+      }
+
+      return metadata;
     } catch {
       throw new FFmpegError(`Failed to parse FFprobe output: ${result.stdout}`);
     }
@@ -140,6 +154,82 @@ export class FFprobe {
     const streams = await this.getAudioStreams(filePath);
     return streams.length > 0;
   }
+
+  /**
+   * Get video codec name
+   */
+  async getVideoCodec(filePath: string): Promise<string | undefined> {
+    const streams = await this.getStreams(filePath);
+    const videoStream = streams.find((s) => s.codec_type === "video");
+    return videoStream?.codec_name;
+  }
+
+  /**
+   * Get audio codec name
+   */
+  async getAudioCodec(filePath: string): Promise<string | undefined> {
+    const streams = await this.getStreams(filePath);
+    const audioStream = streams.find((s) => s.codec_type === "audio");
+    return audioStream?.codec_name;
+  }
+
+  /**
+   * Get aspect ratio as a string (e.g., "16:9", "4:3")
+   */
+  async getAspectRatio(filePath: string): Promise<string | undefined> {
+    const streams = await this.getVideoStreams(filePath);
+    const videoStream = streams[0];
+
+    if (!videoStream) return undefined;
+
+    const { width, height } = videoStream;
+    if (!width || !height) return undefined;
+
+    // Calculate GCD
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    const divisor = gcd(width, height);
+
+    return `${width / divisor}:${height / divisor}`;
+  }
+
+  /**
+   * Get frame rate as a number
+   */
+  async getFrameRate(filePath: string): Promise<number | undefined> {
+    const streams = await this.getVideoStreams(filePath);
+    const videoStream = streams[0];
+
+    if (!videoStream?.r_frame_rate) return undefined;
+
+    const [num, den] = videoStream.r_frame_rate.split("/").map(Number);
+    if (num === undefined) return undefined;
+    return den ? num / den : num;
+  }
+
+  /**
+   * Get pixel format
+   */
+  async getPixelFormat(filePath: string): Promise<string | undefined> {
+    const streams = await this.getVideoStreams(filePath);
+    return streams[0]?.pix_fmt;
+  }
+
+  /**
+   * Get audio sample rate
+   */
+  async getAudioSampleRate(filePath: string): Promise<number | undefined> {
+    const streams = await this.getAudioStreams(filePath);
+    const rate = streams[0]?.sample_rate;
+    return rate ? parseInt(rate, 10) : undefined;
+  }
+
+  /**
+   * Get number of audio channels
+   */
+  async getAudioChannels(filePath: string): Promise<number | undefined> {
+    const streams = await this.getAudioStreams(filePath);
+    return streams[0]?.channels;
+  }
 }
 
 export function createFFprobe(options?: FFprobeOptions): FFprobe {
@@ -160,4 +250,81 @@ export async function getDuration(
 ): Promise<number> {
   const ffprobe = new FFprobe(options);
   return ffprobe.getDuration(filePath);
+}
+
+/**
+ * Get video codec name for a file
+ */
+export async function getVideoCodec(
+  filePath: string,
+  options?: FFprobeOptions
+): Promise<string | undefined> {
+  const ffprobe = new FFprobe(options);
+  return ffprobe.getVideoCodec(filePath);
+}
+
+/**
+ * Get audio codec name for a file
+ */
+export async function getAudioCodec(
+  filePath: string,
+  options?: FFprobeOptions
+): Promise<string | undefined> {
+  const ffprobe = new FFprobe(options);
+  return ffprobe.getAudioCodec(filePath);
+}
+
+/**
+ * Get aspect ratio as a string (e.g., "16:9", "4:3")
+ */
+export async function getAspectRatio(
+  filePath: string,
+  options?: FFprobeOptions
+): Promise<string | undefined> {
+  const ffprobe = new FFprobe(options);
+  return ffprobe.getAspectRatio(filePath);
+}
+
+/**
+ * Get frame rate as a number
+ */
+export async function getFrameRate(
+  filePath: string,
+  options?: FFprobeOptions
+): Promise<number | undefined> {
+  const ffprobe = new FFprobe(options);
+  return ffprobe.getFrameRate(filePath);
+}
+
+/**
+ * Get pixel format
+ */
+export async function getPixelFormat(
+  filePath: string,
+  options?: FFprobeOptions
+): Promise<string | undefined> {
+  const ffprobe = new FFprobe(options);
+  return ffprobe.getPixelFormat(filePath);
+}
+
+/**
+ * Get audio sample rate
+ */
+export async function getAudioSampleRate(
+  filePath: string,
+  options?: FFprobeOptions
+): Promise<number | undefined> {
+  const ffprobe = new FFprobe(options);
+  return ffprobe.getAudioSampleRate(filePath);
+}
+
+/**
+ * Get number of audio channels
+ */
+export async function getAudioChannels(
+  filePath: string,
+  options?: FFprobeOptions
+): Promise<number | undefined> {
+  const ffprobe = new FFprobe(options);
+  return ffprobe.getAudioChannels(filePath);
 }

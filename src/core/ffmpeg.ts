@@ -4,11 +4,22 @@
 
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
+import { Readable } from "node:stream";
 import { getFFmpegPath } from "../binary/paths";
 import { spawnStreamingProcess, killProcess } from "../utils/process";
-import { parseProgress, calculatePercent } from "../utils/progress";
-import { FFmpegExitError } from "../utils/errors";
-import { validatePath } from "../utils/validation";
+import {
+  parseProgress,
+  calculatePercent,
+  parseDuration,
+} from "../utils/progress";
+import {
+  FFmpegExitError,
+  FFmpegAbortError,
+  FileExistsError,
+} from "../utils/errors";
+import { validatePath, isValidUrl } from "../utils/validation";
+import { getDuration as getVideoDuration } from "./ffprobe";
+import fs from "node:fs";
 import type {
   FFmpegOptions,
   ProgressInfo,
@@ -23,9 +34,11 @@ import type {
   MergeOptions,
   ConcatOptions,
   GifOptions,
+  ThumbnailSheetOptions,
   WatermarkOptions,
   SpeedOptions,
   RotateOptions,
+  InputSource,
 } from "../types";
 
 export interface FFmpegEvents {
@@ -69,11 +82,13 @@ export class FFmpeg extends EventEmitter<FFmpegEvents> {
   }
 
   /**
-   * Add an input file or URL
+   * Add an input file, URL, buffer, or stream
    */
-  input(source: string, options: string[] = []): this {
-    validatePath(source, "Input source");
-    this.inputs.push({ source, options });
+  input(source: InputSource, options: string[] = [], format?: string): this {
+    if (typeof source === "string") {
+      validatePath(source, "Input source");
+    }
+    this.inputs.push({ source, options, format });
     return this;
   }
 
@@ -283,10 +298,23 @@ export class FFmpeg extends EventEmitter<FFmpegEvents> {
 
     // Add inputs
     for (const input of this.inputs) {
+      // Add input options
       if (input.options) {
         args.push(...input.options);
       }
-      args.push("-i", input.source);
+
+      // Handle buffer/stream inputs
+      if (Buffer.isBuffer(input.source) || input.source instanceof Readable) {
+        // Set format for buffer/stream
+        if (input.format) {
+          args.push("-f", input.format);
+        }
+        // Use pipe:0 for stdin
+        args.push("-i", "pipe:0");
+      } else {
+        // Regular file path or URL
+        args.push("-i", input.source as string);
+      }
     }
 
     // Apply pending output options to last output
@@ -322,15 +350,61 @@ export class FFmpeg extends EventEmitter<FFmpegEvents> {
   /**
    * Run the FFmpeg command
    */
-  async run(): Promise<FFmpegResult> {
+  async run(signal?: AbortSignal): Promise<FFmpegResult> {
     const args = this.buildArgs();
     const command = this.getCommand();
     const startTime = Date.now();
+
+    // Check if signal is already aborted
+    if (signal?.aborted) {
+      throw new FFmpegAbortError(command);
+    }
+
+    // Auto-detect duration for file inputs if not already set
+    if (!this.inputDuration && this.inputs.length > 0) {
+      const firstInput = this.inputs[0];
+      if (
+        firstInput &&
+        typeof firstInput.source === "string" &&
+        !isValidUrl(firstInput.source)
+      ) {
+        try {
+          this.inputDuration = await getVideoDuration(firstInput.source);
+        } catch {
+          // If duration detection fails, continue without it
+        }
+      }
+    }
+
+    // Check for existing output files if overwrite is not enabled
+    const hasOverwrite =
+      this.globalArgs.includes("-y") ||
+      this.outputs.some((o) => o.options?.includes("-y"));
+    if (!hasOverwrite) {
+      for (const output of this.outputs) {
+        if (fs.existsSync(output.destination)) {
+          throw new FileExistsError(output.destination);
+        }
+      }
+    }
 
     return new Promise((resolve, reject) => {
       this.process = spawnStreamingProcess(this.ffmpegPath, args, {
         cwd: this.globalOptions.cwd,
       });
+
+      const onAbort = (): void => {
+        if (this.process) {
+          killProcess(this.process).catch(() => {
+            /* ignore */
+          });
+        }
+        reject(new FFmpegAbortError(command));
+      };
+
+      if (signal) {
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
 
       this.emit("start", command);
 
@@ -341,7 +415,14 @@ export class FFmpeg extends EventEmitter<FFmpegEvents> {
         stderr += line;
         this.emit("stderr", line);
 
-        // Parse progress
+        // Auto-detect duration from FFmpeg's initial output if not already set
+        if (!this.inputDuration) {
+          const duration = parseDuration(line);
+          if (duration !== null && duration > 0) {
+            this.inputDuration = duration;
+          }
+        }
+
         const progress = parseProgress(line);
         if (progress) {
           if (this.inputDuration) {
@@ -355,15 +436,25 @@ export class FFmpeg extends EventEmitter<FFmpegEvents> {
       });
 
       this.process.on("error", (error) => {
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
         this.emit("error", error);
         reject(error);
       });
 
       this.process.on("close", (code) => {
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
+
         const duration = Date.now() - startTime;
         const exitCode = code ?? 0;
 
         if (exitCode !== 0) {
+          // If aborted, the promise was already rejected
+          if (signal?.aborted) return;
+
           const error = new FFmpegExitError(exitCode, stderr, command);
           this.emit("error", error);
           reject(error);
@@ -379,6 +470,19 @@ export class FFmpeg extends EventEmitter<FFmpegEvents> {
         this.emit("end", result);
         resolve(result);
       });
+
+      // Handle buffer/stream inputs - write to stdin
+      const firstInput = this.inputs[0];
+      if (Buffer.isBuffer(firstInput?.source)) {
+        if (this.process.stdin) {
+          this.process.stdin.write(firstInput.source);
+          this.process.stdin.end();
+        }
+      } else if (firstInput?.source instanceof Readable) {
+        if (this.process.stdin) {
+          firstInput.source.pipe(this.process.stdin);
+        }
+      }
     });
   }
 
@@ -429,8 +533,8 @@ export class FFmpeg extends EventEmitter<FFmpegEvents> {
       ffmpeg.inputOptions(...options.inputOptions);
     }
 
-    // Add input
-    ffmpeg.input(options.input);
+    // Add input (with format for buffer/stream inputs)
+    ffmpeg.input(options.input, [], options.inputFormat);
 
     // Add output
     ffmpeg.output(options.output);
@@ -614,7 +718,7 @@ export class FFmpeg extends EventEmitter<FFmpegEvents> {
       ffmpeg.on("stderr", options.onStderr);
     }
 
-    return ffmpeg.run();
+    return ffmpeg.run(options.signal);
   }
 }
 
@@ -695,7 +799,7 @@ export async function extractAudio(
     ffmpeg.on("progress", options.onProgress);
   }
 
-  return ffmpeg.run();
+  return ffmpeg.run(options.signal);
 }
 
 /**
@@ -729,7 +833,7 @@ export async function takeScreenshot(
     ffmpeg.overwrite();
   }
 
-  return ffmpeg.run();
+  return ffmpeg.run(options.signal);
 }
 
 /**
@@ -764,7 +868,7 @@ export async function trim(options: TrimOptions): Promise<FFmpegResult> {
     ffmpeg.on("progress", options.onProgress);
   }
 
-  return ffmpeg.run();
+  return ffmpeg.run(options.signal);
 }
 
 /**
@@ -813,7 +917,7 @@ export async function compress(
     ffmpeg.on("progress", options.onProgress);
   }
 
-  return ffmpeg.run();
+  return ffmpeg.run(options.signal);
 }
 
 /**
@@ -843,7 +947,7 @@ export async function merge(options: MergeOptions): Promise<FFmpegResult> {
     ffmpeg.on("progress", options.onProgress);
   }
 
-  return ffmpeg.run();
+  return ffmpeg.run(options.signal);
 }
 
 /**
@@ -888,7 +992,7 @@ export async function concat(options: ConcatOptions): Promise<FFmpegResult> {
     ffmpeg.on("progress", options.onProgress);
   }
 
-  return ffmpeg.run();
+  return ffmpeg.run(options.signal);
 }
 
 /**
@@ -925,7 +1029,7 @@ export async function toGif(options: GifOptions): Promise<FFmpegResult> {
     ffmpeg.on("progress", options.onProgress);
   }
 
-  return ffmpeg.run();
+  return ffmpeg.run(options.signal);
 }
 
 /**
@@ -980,7 +1084,7 @@ export async function addWatermark(
     ffmpeg.on("progress", options.onProgress);
   }
 
-  return ffmpeg.run();
+  return ffmpeg.run(options.signal);
 }
 
 /**
@@ -1034,7 +1138,7 @@ export async function changeSpeed(
     ffmpeg.on("progress", options.onProgress);
   }
 
-  return ffmpeg.run();
+  return ffmpeg.run(options.signal);
 }
 
 /**
@@ -1079,7 +1183,7 @@ export async function rotate(options: RotateOptions): Promise<FFmpegResult> {
     ffmpeg.on("progress", options.onProgress);
   }
 
-  return ffmpeg.run();
+  return ffmpeg.run(options.signal);
 }
 
 /**
@@ -1120,6 +1224,11 @@ export interface RunCommandOptions {
    * Input duration for progress calculation
    */
   inputDuration?: number;
+
+  /**
+   * AbortSignal for cancellation (optional)
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -1155,11 +1264,27 @@ export async function runCommand(
   const args = ["-hide_banner", ...options.args];
   const command = `${ffmpegPath} ${args.join(" ")}`;
   const startTime = Date.now();
+  const { signal } = options;
+
+  if (signal?.aborted) {
+    throw new FFmpegAbortError(command);
+  }
 
   return new Promise((resolve, reject) => {
     const process = spawnStreamingProcess(ffmpegPath, args, {
       cwd: options.cwd,
     });
+
+    const onAbort = (): void => {
+      killProcess(process).catch(() => {
+        /* ignore */
+      });
+      reject(new FFmpegAbortError(command));
+    };
+
+    if (signal) {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
 
     if (options.onStart) {
       options.onStart(command);
@@ -1189,14 +1314,22 @@ export async function runCommand(
     });
 
     process.on("error", (error) => {
+      if (signal) {
+        signal.removeEventListener("abort", onAbort);
+      }
       reject(error);
     });
 
     process.on("close", (code) => {
+      if (signal) {
+        signal.removeEventListener("abort", onAbort);
+      }
+
       const duration = Date.now() - startTime;
       const exitCode = code ?? 0;
 
       if (exitCode !== 0) {
+        if (signal?.aborted) return;
         reject(new FFmpegExitError(exitCode, stderr, command));
         return;
       }
@@ -1262,4 +1395,101 @@ export async function runCommandString(
   const trimmed = command.trim().replace(/^ffmpeg\s+/, "");
   const args = parseCommand(trimmed);
   return runCommand({ ...options, args });
+}
+
+/**
+ * Convert with two-pass encoding for better quality control
+ *
+ * @example
+ * ```typescript
+ * import { convertTwoPass } from 'nodejs-ffmpeg';
+ *
+ * await convertTwoPass({
+ *   input: 'input.mp4',
+ *   output: 'output.mp4',
+ *   videoCodec: 'libx264',
+ *   crf: 23,
+ * });
+ * ```
+ */
+export async function convertTwoPass(
+  options: ConvertOptions & { passLogFile?: string }
+): Promise<FFmpegResult> {
+  const passLogFile = options.passLogFile ?? "/tmp ffmpeg2pass";
+
+  // First pass - analyze video
+  const pass1Options: ConvertOptions = {
+    ...options,
+    output: "-",
+    outputOptions: [
+      ...(options.outputOptions ?? []),
+      "-pass",
+      "1",
+      "-passlogfile",
+      passLogFile,
+      "-f",
+      "null",
+    ],
+  };
+
+  await convert(pass1Options);
+
+  // Second pass - actual encoding
+  const pass2Options: ConvertOptions = {
+    ...options,
+    outputOptions: [
+      ...(options.outputOptions ?? []),
+      "-pass",
+      "2",
+      "-passlogfile",
+      passLogFile,
+    ],
+  };
+
+  return convert(pass2Options);
+}
+
+/**
+ * Generate a thumbnail sheet (contact sheet) from a video
+ *
+ * @example
+ * ```typescript
+ * import { generateThumbnailSheet } from 'nodejs-ffmpeg';
+ *
+ * await generateThumbnailSheet({
+ *   input: 'video.mp4',
+ *   output: 'thumbnails.jpg',
+ *   columns: 4,
+ *   rows: 4,
+ * });
+ * ```
+ */
+export async function generateThumbnailSheet(
+  options: ThumbnailSheetOptions
+): Promise<FFmpegResult> {
+  const ffmpeg = new FFmpeg();
+
+  const columns = options.columns ?? 4;
+  const rows = options.rows ?? 4;
+  const interval = options.interval ?? 5;
+  const tileSize = options.tileSize ?? "320x180";
+  // const gap = options.gap ?? 10;
+
+  // Calculate total frames needed
+  // const totalFrames = columns * rows;
+
+  ffmpeg
+    .input(options.input)
+    .outputOptions(
+      "-vf",
+      `fps=1/${interval},scale=${tileSize},tile=${columns}x${rows}`
+    )
+    .outputOptions("-frames:v", "1")
+    .output(options.output);
+
+  if (options.overwrite !== false) {
+    ffmpeg.overwrite();
+  }
+
+  return ffmpeg.run(options.signal);
 }

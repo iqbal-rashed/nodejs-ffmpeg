@@ -15,6 +15,8 @@ export {
   runCommand,
   runCommandString,
   parseCommand,
+  convertTwoPass,
+  generateThumbnailSheet,
   type RunCommandOptions,
 } from "./core/ffmpeg";
 
@@ -23,6 +25,13 @@ export {
   createFFprobe,
   getMetadata,
   getDuration,
+  getVideoCodec,
+  getAudioCodec,
+  getAspectRatio,
+  getFrameRate,
+  getPixelFormat,
+  getAudioSampleRate,
+  getAudioChannels,
 } from "./core/ffprobe";
 
 export { downloadBinaries, needsDownload } from "./binary/downloader";
@@ -35,6 +44,7 @@ export {
   areBinariesDownloaded,
   getDefaultBinaryDir,
   hasFFmpegBinaries,
+  getPackageRoot,
 } from "./binary/paths";
 export {
   getPlatform,
@@ -97,10 +107,43 @@ export {
   FFmpegNotFoundError,
   FFmpegExitError,
   FFmpegTimeoutError,
+  FFmpegAbortError,
+  InvalidInputError,
+  CodecNotFoundError,
+  FileExistsError,
   DownloadError,
   UnsupportedPlatformError,
   ValidationError,
 } from "./utils/errors";
+export {
+  batchProcess,
+  getSuccessfulResults,
+  getFailedResults,
+} from "./utils/batch";
+export { probeCache } from "./utils/cache";
+export { ConversionQueue, createQueue } from "./utils/queue";
+export { withRetry, convertWithRetry } from "./utils/retry";
+export {
+  createThrottledProgress,
+  createIntervalProgress,
+  ProgressAggregator,
+} from "./utils/throttle";
+export {
+  validateInput,
+  validateOutputPath,
+  // validateFFmpegOptions,
+  validateVideoCodec,
+  validateAudioCodec,
+  validateQuality,
+  validateBitrate,
+  validateResolution,
+  validateFrameRate,
+  validateSampleRate,
+  validateTime,
+  validateSpeed,
+  validateRotation,
+  validateWatermarkOpacity,
+} from "./utils/validators";
 
 export type {
   FFmpegOptions,
@@ -122,6 +165,8 @@ export type {
   WatermarkOptions,
   SpeedOptions,
   RotateOptions,
+  BatchOptions,
+  BatchResult,
   FFprobeResult,
   FFprobeOptions,
   FormatInfo,
@@ -134,4 +179,9 @@ export type {
   DownloadOptions,
   DownloadProgress,
   PlatformBinaryNames,
+  RetryOptions,
+  ThumbnailSheetOptions,
+  ThrottledProgressOptions,
+  SizeEstimation,
+  InputSource,
 } from "./types";

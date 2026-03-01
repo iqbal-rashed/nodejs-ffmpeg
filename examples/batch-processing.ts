@@ -27,8 +27,8 @@ async function main(): Promise<void> {
     await downloadBinaries();
   }
 
-  // Get input directory from args or use samples
-  const inputDir = process.argv[2] ?? path.join(__dirname, "..", "samples");
+  // Get input directory from args or use fixtures
+  const inputDir = process.argv[2] ?? path.join(__dirname, "..", "fixtures");
 
   // Ensure outputs directory exists
   const outputsDir = path.join(__dirname, "..", "outputs", "batch");

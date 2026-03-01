@@ -45,7 +45,7 @@ function findPackageRoot(startDir: string): string {
 
 let cachedPackageRoot: string | undefined;
 
-function getPackageRoot(): string {
+export function getPackageRoot(): string {
   cachedPackageRoot ??= findPackageRoot(__dirname);
   return cachedPackageRoot;
 }
